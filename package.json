@@ -1,8 +1,13 @@
 {
   "name": "@superinstance/live-canon",
-  "version": "0.8.9",
-  "description": "Live Canon \u2014 read the AI-Writings canon as a navigable cell fabric, with 5 novel operations: NAVIGATE, CONFLUENCE, LINEAGE, GHOST, TICK.",
+  "version": "0.9.0",
+  "description": "Live Canon — read the AI-Writings canon as a navigable cell fabric, with 7 novel operations: NAVIGATE, CONFLUENCE, LINEAGE, GHOST, TICK, CLAIM, DRILL. 71 papers bundled (F98-F169). Polyformal: byte-exact with Python, C, Rust, Verilog, VHDL.",
   "main": "index.js",
+  "files": [
+    "index.js",
+    "data.json",
+    "README.md"
+  ],
   "scripts": {
     "test": "node test/test.js"
   },
@@ -12,7 +17,10 @@
     "polyformalism",
     "shape-rag",
     "live-canon",
-    "ai-writings"
+    "ai-writings",
+    "fnv-1a",
+    "claim",
+    "drill"
   ],
   "author": "Casey Digennaro <superinstance@users.noreply.github.com>",
   "license": "MIT",
