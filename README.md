@@ -3,7 +3,7 @@
 **Live Canon — read the AI-Writings canon as a navigable cell fabric.**
 
 [![npm](https://img.shields.io/npm/v/@superinstance/live-canon)](https://www.npmjs.com/package/@superinstance/live-canon)
-[![State hash](https://img.shields.io/badge/state_hash-0xbf27a3631cdee337-brightgreen)](https://live-canon.superinstance.dev)
+[![State hash](https://img.shields.io/badge/state_hash-0x445185a3a99fd2e7-brightgreen)](https://live-canon.superinstance.dev)
 [![Polyformalism](https://img.shields.io/badge/polyformal-6_substrates-blueviolet)](https://github.com/SuperInstance/quilt-cowboy)
 
 ## What it does
@@ -32,7 +32,7 @@ const { LiveCanon } = require('@superinstance/live-canon');
 const canon = new LiveCanon();
 
 // State hash (byte-exact with Python/C/Rust/Verilog/VHDL/JS-Worker)
-console.log(canon.stateHashString);  // 0xbf27a3631cdee337
+console.log(canon.stateHashString);  // 0x445185a3a99fd2e7
 
 // 1. NAVIGATE — BFS from a paper
 const path = canon.navigate(425, 2);
@@ -65,17 +65,22 @@ const canon = await LiveCanon.fromUrl('https://live-canon.superinstance.dev/api/
 
 ## Polyformalism
 
-The Live Canon is byte-exact across 6 substrates:
+The canonical state hash is FNV-1a 64-bit over the canonical cell
+serialization (type‖id‖dials‖neighbors), byte-exact with the Cloudflare
+Worker. This package converged on `0x445185a3a99fd2e7` (71 papers,
+F98-F169) as of v0.9.1 — verified by `npm test` (computed, then pinned).
 
 | Substrate | Status | State hash |
 |---|---|---|
-| Python (this) | reference | `0xbf27a3631cdee337` |
-| JavaScript (npm) | this package | `0xbf27a3631cdee337` |
-| JavaScript (Cloudflare Worker) | live | `0xbf27a3631cdee337` |
-| C99 | `live_canon.c` | `0xbf27a3631cdee337` |
-| Rust | `live-canon` crate | (same) |
-| Verilog-2005 | `live_canon.v` | (same) |
-| VHDL-2008 | `live_canon.vhdl` | (same) |
+| npm (this package) | ✅ converged v0.9.1 | `0x445185a3a99fd2e7` |
+| PyPI `quilt-live-canon` | ✅ converged v0.9.1 (branch `canon-canonical-sync`) | `0x445185a3a99fd2e7` |
+| Cloudflare Worker | branch `canon-71-full-corpus`, merge pending | `0x445185a3a99fd2e7` by construction |
+| C99 / Rust / Verilog / VHDL ports | drift — re-bundle pending | legacy bundles |
+| retired dial-only (v0.9.0 claim) | provenance only | `0x7f563ed9982496a1` (same corpus, retired algorithm) |
+| retired v0.2.0 9-paper target | **stranded** — algorithm retired | `0xbf27a3631cdee337` |
+
+A stranded target is a lie about the future; an unreached target is a debt.
+The fleet pays debts and deletes lies.
 
 The 16-dial encoding is shared: `num_q = number*131`, `f_q = f*218`,
 `phase_q = phase*218`, `year_q = (year-1970)*546`, `title_lo/hi = FNV-1a(title)`.

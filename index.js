@@ -1,7 +1,14 @@
 // index.js — Live Canon: AI-Writings as a navigable cell fabric
 // 71 papers, byte-exact with Python, C, Rust, Verilog, VHDL, JavaScript.
 // 7 operations: NAVIGATE, CONFLUENCE, LINEAGE, GHOST, TICK, CLAIM, DRILL.
-// State hash: 0x7f563ed9982496a1 (F98-F169)
+// State hash: 0x445185a3a99fd2e7 (F98-F169, canonical serialization)
+//
+// The canonical state hash is FNV-1a 64-bit over the canonical cell
+// serialization (type(1)=0x01 ‖ id(8 LE) ‖ dials(16×int16 LE) ‖
+// neighbors(8*N LE)), byte-exact with the Cloudflare Worker
+// (quilt-live-canon worker.js). The retired dial-only hash
+// (0x7f563ed9982496a1 over this corpus) is kept as
+// legacyDialOnlyStateHash() for provenance only.
 
 const FNV_OFFSET = 0xCBF29CE484222325n;
 const FNV_PRIME  = 0x00000100000001B3n;
@@ -33,7 +40,86 @@ function cellToDials(p) {
   return [numQ, titleLo, fQ, phaseQ, yearQ, nRefsQ, titleHi, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 }
 
+// ===== Canonical cell serialization (Quilt spec, byte-exact with the Worker) =====
+// type(1) || id(8 LE) || dials(32 LE) || neighbors(8*N LE)
+function fnv1a64Bytes(bytes) {
+  let h = FNV_OFFSET;
+  for (const b of bytes) {
+    h ^= BigInt(b);
+    h = (h * FNV_PRIME) & MASK;
+  }
+  return h;
+}
+
+function serializeCell(cellId, dials, neighbors) {
+  const out = new Uint8Array(1 + 8 + 32 + 8 * neighbors.length);
+  out[0] = 0x01;
+  const dv = new DataView(out.buffer);
+  let id = BigInt(cellId);
+  for (let i = 0; i < 8; i++) {
+    dv.setUint8(1 + i, Number(id & 0xFFn));
+    id >>= 8n;
+  }
+  for (let i = 0; i < 16; i++) {
+    dv.setInt16(9 + i * 2, dials[i] | 0, true);
+  }
+  let off = 41;
+  for (const n of neighbors) {
+    let nn = BigInt(n);
+    for (let i = 0; i < 8; i++) {
+      dv.setUint8(off + i, Number(nn & 0xFFn));
+      nn >>= 8n;
+    }
+    off += 8;
+  }
+  return out;
+}
+
+function cellHash(cellId, dials, neighbors) {
+  const h = fnv1a64Bytes(serializeCell(cellId, dials, neighbors));
+  return `0x${h.toString(16).padStart(16, "0")}`;
+}
+
+// Declared canon target: canonical serialization over the 71-paper committed
+// corpus. COMPUTED, then pinned — verified by test/test.js.
+const CANON_TARGET = 0x445185a3a99fd2e7n;
+
+// Provenance pins (all COMPUTED, then pinned):
+//   0x7f563ed9982496a1 — legacy dial-only over this 71-paper bundle (v0.9.0 claim)
+//   0xbf27a3631cdee337 — dial-only over the retired 9-paper v0.2.0 bundle (stranded)
+const LEGACY_DIAL_ONLY_71 = 0x7f563ed9982496a1n;
+const LEGACY_DIAL_ONLY_9 = 0xbf27a3631cdee337n;
+
+function canonicalStateHash(papers) {
+  const cells = Object.values(papers).map(p => ({
+    id: p.number,
+    dials: cellToDials(p),
+    neighbors: (p.ref_papers || []).map(n => Number(n)),
+  }));
+  cells.sort((a, b) => a.id - b.id);
+  let combined = new Uint8Array(0);
+  for (const c of cells) {
+    const enc = serializeCell(c.id, c.dials, c.neighbors);
+    const next = new Uint8Array(combined.length + enc.length);
+    next.set(combined, 0);
+    next.set(enc, combined.length);
+    combined = next;
+  }
+  return fnv1a64Bytes(combined);
+}
+
 function stateHash(papers) {
+  // The canonical state hash. The dial-only algorithm is retired.
+  return canonicalStateHash(papers);
+}
+
+function stateHashString(papers) {
+  return `0x${stateHash(papers).toString(16).padStart(16, "0")}`;
+}
+
+function legacyDialOnlyStateHash(papers) {
+  // RETIRED v0.9.0-and-earlier algorithm. Kept for provenance only —
+  // a number produced by this function can never equal a canonical hash.
   const dials = Object.values(papers).map(cellToDials);
   dials.sort((a, b) => a[0] - b[0]);
   let h = FNV_OFFSET;
@@ -48,6 +134,14 @@ function stateHash(papers) {
     }
   }
   return h;
+}
+
+function classifyTargetProvenance(target) {
+  const t = BigInt(target);
+  if (t === CANON_TARGET) return "live";
+  if (t === LEGACY_DIAL_ONLY_71) return "reachable"; // right corpus, retired algorithm
+  if (t === LEGACY_DIAL_ONLY_9) return "stranded";  // retired algorithm + retired corpus
+  return "unknown";
 }
 
 function cosine(a, b) {
@@ -275,6 +369,7 @@ class LiveCanon {
   get paperCount() { return Object.keys(this._canon).length; }
   get bodyCount() { return Object.keys(this._bodies).length; }
   stateHash() { return stateHash(this._canon); }
+  get stateHashString() { return stateHashString(this._canon); }
   navigate(start, depth = 1) { return navigate(this._canon, start, depth); }
   confluence(paperNums) { return confluence(this._canon, paperNums); }
   lineage(fNumber) { return lineage(this._canon, fNumber); }
@@ -284,4 +379,9 @@ class LiveCanon {
   drill(query) { return drill(this._canon, this._bodies, query); }
 }
 
-module.exports = { LiveCanon, fnv1a_64, stateHash, cellToDials, DEFAULT_CANON, BODIES };
+module.exports = {
+  LiveCanon, fnv1a_64, stateHash, stateHashString, cellToDials,
+  serializeCell, cellHash, canonicalStateHash, legacyDialOnlyStateHash,
+  classifyTargetProvenance, CANON_TARGET,
+  DEFAULT_CANON, BODIES,
+};
