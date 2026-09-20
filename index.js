@@ -1,7 +1,12 @@
 // index.js — Live Canon: AI-Writings as a navigable cell fabric
 // 71 papers, byte-exact with Python, C, Rust, Verilog, VHDL, JavaScript.
 // 7 operations: NAVIGATE, CONFLUENCE, LINEAGE, GHOST, TICK, CLAIM, DRILL.
-// State hash: 0x7f563ed9982496a1 (F98-F169)
+// State hash: 0x445185a3a99fd2e7 (F98-F169, canonical serialization)
+// Canonical serialization (drift closure 2026-09-20): tag 0x01 + id u64LE +
+// 16 dials int16LE + neighbors u64LE each, cells sorted by id, FNV-1a 64 over
+// the concatenated bytes. Matches the Cloudflare Worker at
+// quilt-live-canon @ canon-71-full-corpus (371e07d) and its
+// test/canon-hash.test.mjs guard.
 
 const FNV_OFFSET = 0xCBF29CE484222325n;
 const FNV_PRIME  = 0x00000100000001B3n;
@@ -33,21 +38,65 @@ function cellToDials(p) {
   return [numQ, titleLo, fQ, phaseQ, yearQ, nRefsQ, titleHi, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 }
 
-function stateHash(papers) {
-  const dials = Object.values(papers).map(cellToDials);
-  dials.sort((a, b) => a[0] - b[0]);
+function fnv1a_64_bytes(bytes) {
   let h = FNV_OFFSET;
-  for (const d of dials) {
-    for (const v of d) {
-      const lo = v & 0xFF;
-      const hi = (v >> 8) & 0xFF;
-      h ^= BigInt(lo);
-      h = (h * FNV_PRIME) & MASK;
-      h ^= BigInt(hi);
-      h = (h * FNV_PRIME) & MASK;
-    }
+  for (const b of bytes) {
+    h ^= BigInt(b);
+    h = (h * FNV_PRIME) & MASK;
   }
   return h;
+}
+
+// Canonical cell serialization — byte-exact with serializeCell() in the
+// Cloudflare Worker (worker.js @ canon-71-full-corpus).
+function serializeCell(cellId, dials, neighbors) {
+  const out = new Uint8Array(1 + 8 + 32 + 8 * neighbors.length);
+  out[0] = 0x01;
+  const dv = new DataView(out.buffer);
+  let id = BigInt(cellId);
+  for (let i = 0; i < 8; i++) {
+    dv.setUint8(1 + i, Number(id & 0xFFn));
+    id >>= 8n;
+  }
+  for (let i = 0; i < 16; i++) {
+    dv.setInt16(9 + i * 2, dials[i] | 0, true);
+  }
+  let off = 41;
+  for (const n of neighbors) {
+    let nn = BigInt(n);
+    for (let i = 0; i < 8; i++) {
+      dv.setUint8(off + i, Number(nn & 0xFFn));
+      nn >>= 8n;
+    }
+    off += 8;
+  }
+  return out;
+}
+
+// Canonical state hash — the drift-closure contract. The bundled canon must
+// hash to CANON_TARGET. Guarded by test/canon-hash.test.js.
+const CANON_TARGET = '0x445185a3a99fd2e7';
+
+function stateHash(papers) {
+  const allCells = Object.values(papers).map(p => {
+    const dials = cellToDials(p);
+    const neighbors = (p.ref_papers || []).map(n => Number(n));
+    return { id: p.number, dials, neighbors };
+  });
+  allCells.sort((a, b) => a.id - b.id);
+  let combined = new Uint8Array(0);
+  for (const c of allCells) {
+    const enc = serializeCell(c.id, c.dials, c.neighbors);
+    const next = new Uint8Array(combined.length + enc.length);
+    next.set(combined, 0);
+    next.set(enc, combined.length);
+    combined = next;
+  }
+  return `0x${fnv1a_64_bytes(combined).toString(16).padStart(16, '0')}`;
+}
+
+function stateHashInt(papers) {
+  return BigInt(stateHash(papers));
 }
 
 function cosine(a, b) {
@@ -274,7 +323,12 @@ class LiveCanon {
   papers() { return Object.values(this._canon); }
   get paperCount() { return Object.keys(this._canon).length; }
   get bodyCount() { return Object.keys(this._bodies).length; }
+  // Canonical state hash as a 0x-prefixed hex string (== CANON_TARGET).
   stateHash() { return stateHash(this._canon); }
+  // Backward-compat alias for the pre-0.9.2 string API.
+  get stateHashString() { return this.stateHash(); }
+  // Canonical state hash as a BigInt.
+  stateHashInt() { return stateHashInt(this._canon); }
   navigate(start, depth = 1) { return navigate(this._canon, start, depth); }
   confluence(paperNums) { return confluence(this._canon, paperNums); }
   lineage(fNumber) { return lineage(this._canon, fNumber); }
@@ -284,4 +338,8 @@ class LiveCanon {
   drill(query) { return drill(this._canon, this._bodies, query); }
 }
 
-module.exports = { LiveCanon, fnv1a_64, stateHash, cellToDials, DEFAULT_CANON, BODIES };
+module.exports = {
+  LiveCanon, fnv1a_64, fnv1a_64_bytes, serializeCell,
+  stateHash, stateHashInt, cellToDials,
+  CANON_TARGET, DEFAULT_CANON, BODIES,
+};
